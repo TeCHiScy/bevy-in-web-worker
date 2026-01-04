@@ -22,18 +22,18 @@ bevy = { version = "0.17", features = [
     "bevy_log",
     "zstd_rust",
 ], default-features = false }
-uuid = { version = "1.18", features = ["v4"] }
+uuid = { version = "1.19", features = ["v4"] }
 # 为了让 uuid 及 rand 支持 web 环境
 getrandom = { version = "0.3.3", default-features = false, features = [
     "wasm_js",
 ] }
 rand = "0.9"
 # Web only
-wasm-bindgen = "0.2.101"
-wasm-bindgen-futures = "0.4.51"
+wasm-bindgen = "0.2.106"
+wasm-bindgen-futures = "0.4.56"
 console_error_panic_hook = "0.1.7"
 console_log = "1"
-web-sys = { version = "0.3.78", features = [
+web-sys = { version = "0.3.83", features = [
     "Window",
     "Document",
     "Element",
@@ -48,7 +48,7 @@ web-sys = { version = "0.3.78", features = [
     "BlobPropertyBag",
     "Url",
 ] }
-js-sys = "0.3.78"
+js-sys = "0.3.83"
 
 [profile.wasm-release]
 inherits = "release"

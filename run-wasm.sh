@@ -18,4 +18,5 @@ cp wasm-no-modules/bevy_in_web_worker.js public/bevy_in_web_worker.js
 # 两份 js 共用同一个 wasm
 cp wasm/bevy_in_web_worker_bg.wasm public/bevy_in_web_worker_bg.wasm
 
+# cargo install basic-http-server
 basic-http-server public

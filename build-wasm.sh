@@ -12,6 +12,7 @@ do
 done
 
 # 优化 wasm 包大小
+# https://github.com/WebAssembly/binaryen/releases
 wasm-opt -Oz --output public/bevy_in_web_worker_bg.wasm wasm/bevy_in_web_worker_bg.wasm
 
 cp wasm/bevy_in_web_worker.js public/bevy_in_main_thread.js
