@@ -9,46 +9,43 @@ rust-version = "1.88"
 [lib]
 crate-type = ["cdylib"]
 
+[build-dependencies]
+reqwest = { version = "0.13", features = ["blocking","json"] }
+dom_query = "0.25"
+
 [dependencies]
-app-surface = { version = "=1.7.2", features = ["web_rwh"] }
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+wgpu = "28"
 raw-window-handle = "0.6"
-wgpu = "26"
-bevy = { version = "0.17", features = [
+smol_str = "0.2.2"
+serde_json = "1.0"
+bevy_input = "0.18"
+bevy = { version = "0.18", features = [
     "bevy_pbr",
     "bevy_gizmos",
+    "bevy_gizmos_render",
     "tonemapping_luts",
     "webgpu",
     "bevy_window",
     "bevy_log",
     "zstd_rust",
 ], default-features = false }
-uuid = { version = "1.19", features = ["v4"] }
-# 为了让 uuid 及 rand 支持 web 环境
-getrandom = { version = "0.3.3", default-features = false, features = [
-    "wasm_js",
-] }
 rand = "0.9"
-# Web only
-wasm-bindgen = "0.2.106"
-wasm-bindgen-futures = "0.4.56"
-console_error_panic_hook = "0.1.7"
-console_log = "1"
-web-sys = { version = "0.3.83", features = [
-    "Window",
-    "Document",
-    "Element",
-    "HtmlCanvasElement",
+getrandom = {version = "0.3", features = ["wasm_js"] }
+once_cell = "1.21"
+wasm-bindgen = "0.2.108"
+wasm-bindgen-futures = "0.4.58"
+web-sys = { version = "0.3.85", features = [
     "OffscreenCanvas",
     "MouseEvent",
-    "Worker",
+    "WheelEvent",
+    "KeyboardEvent",
     "DedicatedWorkerGlobalScope",
     "Event",
     "MessageEvent",
-    "Blob",
-    "BlobPropertyBag",
-    "Url",
 ] }
-js-sys = "0.3.83"
+js-sys = "0.3.85"
 
 [profile.wasm-release]
 inherits = "release"
@@ -59,7 +56,6 @@ lto = "fat"
 # lto = true
 codegen-units = 1
 panic = "abort"
-
 
 # works
 [profile.dev-opt]

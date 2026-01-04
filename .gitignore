@@ -1,18 +1,10 @@
 target/
-wasm/*
-wasm-no-modules/*
-public/bevy_in_web_worker_bg.wasm
-public/bevy_in_web_worker.js
-public/bevy_in_main_thread.js
-
-bevy_mod_raycast/
-debug.xcodeproj/
+public/bevy_bg.wasm
+public/bevy.js
 
 .DS_Store
-
-# 排除根目录之外的 lock 文件
-*/Cargo.lock
 
 # IDE/Editor configuration files
 .vscode
 .idea
+debug.xcodeproj/

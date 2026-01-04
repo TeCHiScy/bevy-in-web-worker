@@ -1,10 +1,9 @@
+use crate::WorkerApp;
 use crate::ray_pick::RayPickPlugin;
-use crate::{ActiveInfo, WorkerApp};
-use bevy::color::palettes::css::BLANCHED_ALMOND;
-use bevy::color::palettes::tailwind::BLUE_400;
+use crate::{OffscreenCanvas, OffscreenCanvasPlugin};
 use bevy::{
     asset::RenderAssetUsages,
-    color::palettes::basic::SILVER,
+    color::palettes::{basic::SILVER, css::BLANCHED_ALMOND, tailwind::BLUE_400},
     math::bounding::{Aabb3d, Bounded3d},
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
@@ -13,46 +12,48 @@ use rand::Rng;
 use std::f32::consts::PI;
 use std::ops::Deref;
 
-pub(crate) fn init_app() -> WorkerApp {
+pub(crate) fn init_app(canvas: web_sys::OffscreenCanvas, scale_factor: f32) -> WorkerApp {
+    let canvas = OffscreenCanvas::new(canvas, scale_factor);
     let mut app = App::new();
+    app.add_plugins((
+        DefaultPlugins
+            .set(ImagePlugin::default_nearest())
+            .set(bevy::window::WindowPlugin {
+                primary_window: Some(bevy::window::Window {
+                    present_mode: bevy::window::PresentMode::AutoNoVsync,
+                    ..default()
+                }),
+                ..default()
+            }),
+        RayPickPlugin,
+    ))
+    .add_systems(Startup, setup)
+    .add_systems(Update, (rotate, update_aabbes))
+    .add_systems(PostUpdate, (render_hovered_shapes, render_selected_shapes))
+    .add_plugins(OffscreenCanvasPlugin)
+    .insert_resource(canvas);
 
-    let mut default_plugins = DefaultPlugins.set(ImagePlugin::default_nearest());
-    default_plugins = default_plugins.set(bevy::window::WindowPlugin {
-        primary_window: Some(bevy::window::Window {
-            present_mode: bevy::window::PresentMode::AutoNoVsync,
-            ..default()
-        }),
-        ..default()
-    });
-    app.add_plugins((default_plugins, RayPickPlugin));
-
-    app.add_systems(Startup, setup)
-        .add_systems(Update, (rotate, update_aabbes))
-        .add_systems(PostUpdate, render_active_shapes);
-
-    WorkerApp::new(app)
+    WorkerApp::new(app, scale_factor)
 }
 
 /// A marker component for our shapes so we can query them separately from the ground plane
 #[derive(Component, Clone)]
 enum Shape {
     Box(Cuboid),
-    // Capsule(Capsule3d),
-    // Torus(Torus),
-    // Cylinder(Cylinder),
-    // None,
-}
-/// 标记是否 选中/高亮
-#[derive(Component, Default)]
-pub(crate) struct ActiveState {
-    pub hover: bool,
-    pub selected: bool,
 }
 
-impl ActiveState {
-    fn is_active(&self) -> bool {
-        self.hover || self.selected
-    }
+#[derive(Component)]
+pub(crate) struct Hovered {}
+
+#[derive(Component)]
+pub(crate) struct Target {}
+
+#[derive(Component)]
+pub(crate) struct Selected {}
+
+#[derive(Component)]
+pub(crate) struct InDrag {
+    pub position: Vec2,
 }
 
 const X_EXTENT: f32 = 13.0;
@@ -110,7 +111,7 @@ fn setup(
                     MeshMaterial3d(debug_material.clone()),
                     transform.with_rotation(Quat::from_rotation_x(-PI / 4.)),
                     shape,
-                    ActiveState::default(),
+                    Target {},
                 ));
             }
         }
@@ -140,42 +141,41 @@ fn setup(
     ));
 }
 
-fn rotate(
-    app_info: Res<ActiveInfo>,
-    mut query: Query<&mut Transform, With<Shape>>,
-    time: Res<Time>,
-) {
-    if !app_info.auto_animate {
-        return;
-    }
-
-    for mut transform in &mut query {
+fn rotate(mut q: Query<&mut Transform, With<Shape>>, time: Res<Time>) {
+    for mut transform in &mut q {
         transform.rotate_y(time.delta_secs() / 2.);
     }
 }
 
-/// 绘制 选中/高亮 包围盒
-fn render_active_shapes(mut gizmos: Gizmos, query: Query<(&Shape, &Transform, &ActiveState)>) {
-    for (shape, transform, active_state) in query.iter() {
-        if !active_state.is_active() {
-            continue;
-        }
-        let color = if active_state.selected {
-            BLUE_400
-        } else {
-            BLANCHED_ALMOND
-        };
+fn render_hovered_shapes(
+    mut gizmos: Gizmos,
+    q: Query<(&Shape, &Transform), (With<Hovered>, Without<Selected>)>,
+) {
+    for (shape, transform) in q.iter() {
         let translation = transform.translation.xyz();
         match shape {
             Shape::Box(cuboid) => {
                 gizmos.primitive_3d(
                     cuboid,
                     Isometry3d::new(translation, transform.rotation),
-                    color,
+                    BLANCHED_ALMOND,
                 );
-            } // Shape::Capsule(c) => {
-              //     gizmos.primitive_3d(*c, translation, transform.rotation, color);
-              // }
+            }
+        }
+    }
+}
+
+fn render_selected_shapes(mut gizmos: Gizmos, q: Query<(&Shape, &Transform), With<Selected>>) {
+    for (shape, transform) in q.iter() {
+        let translation = transform.translation.xyz();
+        match shape {
+            Shape::Box(cuboid) => {
+                gizmos.primitive_3d(
+                    cuboid,
+                    Isometry3d::new(translation, transform.rotation),
+                    BLUE_400,
+                );
+            }
         }
     }
 }
@@ -221,8 +221,7 @@ impl Deref for CurrentVolume {
     }
 }
 
-/// 更新 aabb
-#[allow(clippy::type_complexity)]
+// 更新 aabb
 fn update_aabbes(
     mut commands: Commands,
     mut config_store: ResMut<GizmoConfigStore>,

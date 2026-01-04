@@ -1,18 +1,21 @@
-use bevy::{
-    ecs::system::SystemState, platform::collections::HashMap, prelude::*,
-    window::WindowCloseRequested,
+use bevy::{app::PluginsState, ecs::system::SystemState, prelude::*, window::WindowCloseRequested};
+use bevy_input::{
+    ButtonState,
+    keyboard::{Key, KeyboardInput},
+    mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
 };
+use smol_str::SmolStr;
 use std::ops::{Deref, DerefMut};
 
-mod web_ffi;
-pub use web_ffi::*;
-
-mod canvas_view;
-use canvas_view::*;
-
-mod ray_pick;
-
 mod bevy_app;
+mod canvas_plugin;
+mod keyboard;
+mod ray_pick;
+mod web_ffi;
+
+use keyboard::{AsKey, AsKeyCode};
+
+pub(crate) use canvas_plugin::{OffscreenCanvas, OffscreenCanvasPlugin};
 
 pub struct WorkerApp {
     pub app: App,
@@ -36,60 +39,141 @@ impl DerefMut for WorkerApp {
 }
 
 impl WorkerApp {
-    pub fn new(app: App) -> Self {
+    pub fn new(app: App, scale_factor: f32) -> Self {
         Self {
             app,
             window: Entity::PLACEHOLDER,
-            scale_factor: 1.0,
+            scale_factor,
         }
     }
 
     pub fn to_physical_size(&self, x: f32, y: f32) -> Vec2 {
         Vec2::new(x * self.scale_factor, y * self.scale_factor)
     }
-}
 
-#[derive(Debug, Resource)]
-pub(crate) struct ActiveInfo {
-    pub hover: HashMap<Entity, u64>,
-    pub selection: HashMap<Entity, u64>,
-    /// 响应拖动的对象
-    pub drag: Entity,
-    /// 上一帧的拖动位置
-    pub last_drag_pos: Vec2,
-    /// 是否运行在 worker 中
-    pub is_in_worker: bool,
-    /// 是否自动执行场景对象的旋转动画
-    pub auto_animate: bool,
-    /// 剩余帧数
-    ///
-    /// 当关闭了自动运行的帧动画之后，场景将仅由鼠标事件驱动更新。由于帧渲染需要由 requestAnimationFrame 驱动
-    /// 来保持与浏览器显示刷新的同步，所以鼠标事件不会直接调用 app.update(), 而是重置此待更新的帧数
-    pub remaining_frames: u32,
-}
-
-impl ActiveInfo {
-    pub fn new() -> Self {
-        ActiveInfo {
-            hover: HashMap::default(),
-            selection: HashMap::default(),
-            drag: Entity::PLACEHOLDER,
-            last_drag_pos: Vec2::ZERO,
-            is_in_worker: false,
-            auto_animate: true,
-            remaining_frames: 0,
+    pub fn try_finish(&mut self) -> bool {
+        if self.plugins_state() != PluginsState::Ready {
+            return false;
         }
+
+        self.finish();
+        self.cleanup();
+
+        // 缓存 window 对象到 app 上
+        let mut state: SystemState<Query<(Entity, &Window)>> =
+            SystemState::from_world(self.world_mut());
+        if let Ok((entity, _)) = state.get(self.world_mut()).single() {
+            self.window = entity;
+        }
+        true
+    }
+
+    fn on_mouse_up(&mut self, button: i16) {
+        let window = self.window;
+        self.world_mut().write_message(MouseButtonInput {
+            button: mouse_button(button),
+            state: ButtonState::Released,
+            window,
+        });
+    }
+
+    fn on_mouse_down(&mut self, button: i16, x: f32, y: f32) {
+        let window = self.window;
+        self.world_mut().write_message(MouseButtonInput {
+            button: mouse_button(button),
+            state: ButtonState::Pressed,
+            window,
+        });
+    }
+
+    fn on_mouse_move(&mut self, x: f32, y: f32) {
+        // 将逻辑像转换成物理像素
+        let window = self.window;
+        let position = self.to_physical_size(x, y);
+        self.world_mut().write_message(CursorMoved {
+            position,
+            delta: None,
+            window,
+        });
+    }
+
+    fn on_key_up(&mut self, code: String, repeat: bool) {
+        let window = self.window;
+        let key = code.as_str().as_key();
+        let text = key_text(&key);
+        self.world_mut().write_message(KeyboardInput {
+            key_code: code.as_str().as_key_code(),
+            logical_key: key,
+            state: ButtonState::Released,
+            text: text,
+            repeat,
+            window,
+        });
+    }
+
+    fn on_key_down(&mut self, code: String, repeat: bool) {
+        let window = self.window;
+        let key = code.as_str().as_key();
+        let text = key_text(&key);
+        self.world_mut().write_message(KeyboardInput {
+            key_code: code.as_str().as_key_code(),
+            logical_key: key,
+            state: ButtonState::Pressed,
+            text: text,
+            repeat,
+            window,
+        });
+    }
+
+    fn on_wheel(&mut self, delta_x: f32, delta_y: f32, delta_mode: u8) {
+        let window = self.window;
+        self.world_mut().write_message(MouseWheel {
+            x: delta_x,
+            y: delta_y,
+            unit: mouse_scroll_unit(delta_mode),
+            window,
+        });
+    }
+
+    fn close_window(&mut self) {
+        let mut state: SystemState<Query<(Entity, &mut Window)>> =
+            SystemState::from_world(self.world_mut());
+        let windows = state.get_mut(self.world_mut());
+        let (entity, _window) = windows.iter().last().unwrap();
+        self.world_mut()
+            .write_message(WindowCloseRequested { window: entity });
+        state.apply(self.world_mut());
+
+        self.update();
     }
 }
 
-pub(crate) fn close_bevy_window(mut app: Box<App>) {
-    let mut windows_state: SystemState<Query<(Entity, &mut Window)>> =
-        SystemState::from_world(app.world_mut());
-    let windows = windows_state.get_mut(app.world_mut());
-    let (entity, _window) = windows.iter().last().unwrap();
-    app.world_mut()
-        .write_message(WindowCloseRequested { window: entity });
-    windows_state.apply(app.world_mut());
+fn mouse_button(button: i16) -> MouseButton {
+    match button {
+        0 => MouseButton::Left,
+        1 => MouseButton::Middle,
+        2 => MouseButton::Right,
+        3 => MouseButton::Back,
+        4 => MouseButton::Forward,
+        _ => MouseButton::Other(button as u16),
+    }
+}
 
-    app.update();
+fn mouse_scroll_unit(delta_mode: u8) -> MouseScrollUnit {
+    if delta_mode == 1 {
+        MouseScrollUnit::Line
+    } else {
+        MouseScrollUnit::Pixel
+    }
+}
+
+// https://github.com/rust-windowing/winit/blob/da6220060e7626c11332354cc26cd47e2937c200/winit-web/src/web_sys/event.rs#L265
+pub fn key_text(key: &Key) -> Option<SmolStr> {
+    match key {
+        Key::Character(text) => Some(text.clone()),
+        Key::Tab => Some(SmolStr::new("\t")),
+        Key::Enter => Some(SmolStr::new("\r")),
+        _ => None,
+    }
+    .map(SmolStr::new)
 }
